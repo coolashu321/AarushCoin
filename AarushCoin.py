@@ -1,5 +1,7 @@
 from time import time
 from datetime import datetime
+from Crypto.PublicKey import RSA
+from Crypto.Signature import *
 import json
 import hashlib
 import random
@@ -8,12 +10,35 @@ class Blockchain(object):
 	def __init__(self):
 		self.chain = [self.addGenesisBlock()]
 		self.pendingTransactions = []
-		self.difficulty = 3
+		self.difficulty = 4
 		self.minerRewards = 50
 		self.blockSize = 10
 
+	def addTransaction(self, sender, reciever, amount, keyString, senderKey):
+		keyByte = keyString.encode("ASCII")
+		senderKeyByte = senderKey.encode("ASCII")
+		key = RSA.import_key(keyByte)
+		senderKey = RSA.import_key(senderKeyByte)
+		if not sender or not reciever or not amount:
+			print("Error: Transaction Failed \nError Code: 1")
+			return False
+		transaction = Transaction(sender, reciever, amount)
+		transaction.signTransaction(key, senderKey)
+		if not transaction.isValidTransaction():
+			print("Error: Transaction Failed \nError Code: 2")
+			return False
+		self.pendingTransactions.append(transaction)
+		return len(self.chain) + 1
+
 	def generateKeys(self):
-		pass
+		key = RSA.generate(2048)
+		privateKey = key.export_key()
+		fileOut = open("privateKey.pem", "wb")
+		fileOut.write(privateKey)
+		publicKey = key.publickey().export_key()
+		fileOut = open("publicKey.pem", "wb")
+		fileOut.write(publicKey)
+		return key.publickey().export_key().decode("ASCII")
 	
 	def minePendingTransactions(self, miner):
 		for i in range(0, len(self.pendingTransactions), self.blockSize):
@@ -65,7 +90,7 @@ class Blockchain(object):
 
 	def addGenesisBlock(self):
 		transactionArray = []
-		transactionArray.append(Transaction("Arjun", "Aarush", 10))
+		transactionArray.append(Transaction("Genesis Block", "Genesis Block", 10))
 		genesis = Block(transactionArray, datetime.now().strftime("%m/%d/%Y, %H:%M:%S"), 0)
 		genesis.previousBlockHash = "None"
 		return genesis
@@ -90,8 +115,8 @@ class Block(object):
 			self.hash = self.calculateHash()
 			print(f"Nonce: {self.nonce}")
 			print(f"Hash Attempt {self.hash}")
-		print(f"Hash We Want {hashPuzzle} ... \n")
-		print(f"Block Mined! Nonce to Solve Proof of Work: {self.nonce}")
+		print(f"Hash We Want {hashPuzzle} ...")
+		print(f"Success: Block Mined \nNonce to Solve Proof of Work: {self.nonce}")
 		return True
 
 	def calculateHash(self):
@@ -107,10 +132,34 @@ class Transaction(object):
 		self.sender = sender
 		self.reciever = reciever
 		self.amount = amount
-		self.time = time()
+		self.time = datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
 		self.hash = self.calculateHash()
 
 	def calculateHash(self):
 		hashString = self.sender + self.reciever + str(self.amount) + str(self.time)
 		hashEncoded = json.dumps(hashString).encode()
 		return hashlib.sha256(hashEncoded).hexdigest()
+
+	def signTransaction(self, key, senderKey):
+		if self.hash != self.calculateHash():
+			print("Error: Transaction Tampered")
+			return False
+		if(str(key.publickey().export_key()) != str(senderKey.publickey().export_key())):
+			print("Error: Transaction attempted to be signed from another wallet")
+			return False
+		pkcs1_15.new(key)
+		self.signature = "Made"
+		print("Success: Signature Made")
+		return True
+
+	def isValidTransaction(self):
+		if(self.hash != self.calculateHash()):
+			return False
+		if(self.sender == self.reciever):
+			return False
+		if(self.sender == "Miner Rewards"):
+			return True
+		if not self.signature or len(self.signature) == 0:
+			print("Error: No Signature")
+			return False
+		return True
